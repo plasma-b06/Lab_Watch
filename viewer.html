@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PC Lab Watch Dashboard</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap');
+
+  :root {
+    --bg:       #090e18;
+    --surface:  #0d1527;
+    --border:   #1a2a4a;
+    --accent:   #00e5ff;
+    --green:    #00ff9f;
+    --yellow:   #ffcc00;
+    --red:      #ff3c5f;
+    --text:     #c8d8f0;
+    --muted:    #4a6080;
+    --glow:     0 0 12px rgba(0,229,255,0.35);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 15px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* grid bg */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  #app { position: relative; z-index: 1; }
+
+  /* ── Header ── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(13,21,39,.9);
+    backdrop-filter: blur(8px);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo svg { width: 32px; height: 32px; }
+  .logo h1 {
+    font-size: 1.4rem; font-weight: 700; letter-spacing: .12em;
+    color: var(--accent); text-shadow: var(--glow);
+  }
+  .logo span { font-size: .75rem; color: var(--muted); letter-spacing: .15em; }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .ts { font-family: 'Share Tech Mono', monospace; font-size: .75rem; color: var(--muted); }
+
+  /* ── Upload area ── */
+  #upload-zone {
+    margin: 60px auto; max-width: 560px;
+    border: 2px dashed var(--border);
+    border-radius: 12px; padding: 56px 32px;
+    text-align: center; cursor: pointer;
+    transition: border-color .2s, background .2s;
+  }
+  #upload-zone:hover, #upload-zone.drag { border-color: var(--accent); background: rgba(0,229,255,.04); }
+  #upload-zone .icon { font-size: 3rem; margin-bottom: 16px; opacity: .6; }
+  #upload-zone h2 { font-size: 1.3rem; font-weight: 600; color: var(--accent); margin-bottom: 8px; }
+  #upload-zone p  { color: var(--muted); font-size: .9rem; line-height: 1.5; }
+  #file-input { display: none; }
+  .btn {
+    display: inline-block; margin-top: 20px;
+    padding: 10px 28px; border-radius: 6px; font-size: .9rem; font-weight: 700;
+    letter-spacing: .08em; cursor: pointer; border: none; font-family: inherit;
+    background: var(--accent); color: #000;
+    box-shadow: 0 0 18px rgba(0,229,255,.4);
+    transition: box-shadow .2s, transform .15s;
+  }
+  .btn:hover { box-shadow: 0 0 28px rgba(0,229,255,.7); transform: translateY(-1px); }
+  .btn-sm {
+    padding: 6px 16px; font-size: .8rem;
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--accent); box-shadow: none;
+  }
+  .btn-sm:hover { background: rgba(0,229,255,.08); transform: none; }
+
+  /* ── Dashboard ── */
+  #dashboard { display: none; padding: 28px; max-width: 1400px; margin: 0 auto; }
+
+  /* Machine header bar */
+  .machine-bar {
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 22px; margin-bottom: 24px;
+  }
+  .machine-name { font-size: 1.5rem; font-weight: 700; color: var(--accent); letter-spacing: .08em; }
+  .machine-meta { font-family: 'Share Tech Mono', monospace; font-size: .78rem; color: var(--muted); }
+  .usability-badge {
+    padding: 8px 22px; border-radius: 6px; font-size: 1rem; font-weight: 700; letter-spacing: .1em;
+  }
+  .badge-FULLY_USABLE  { background: rgba(0,255,159,.1);  color: var(--green);  border: 1px solid var(--green);  box-shadow: 0 0 14px rgba(0,255,159,.3); }
+  .badge-DEGRADED      { background: rgba(255,204,0,.1);  color: var(--yellow); border: 1px solid var(--yellow); box-shadow: 0 0 14px rgba(255,204,0,.3); }
+  .badge-NOT_USABLE    { background: rgba(255,60,95,.1);  color: var(--red);    border: 1px solid var(--red);    box-shadow: 0 0 14px rgba(255,60,95,.3); }
+
+  /* ── Cards grid ── */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  .card:hover { border-color: var(--accent); box-shadow: 0 0 20px rgba(0,229,255,.1); }
+
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 18px; border-bottom: 1px solid var(--border);
+    background: rgba(0,0,0,.2);
+  }
+  .card-title { font-size: .8rem; font-weight: 700; letter-spacing: .15em; color: var(--muted); }
+  .card-status { font-size: .75rem; font-weight: 700; letter-spacing: .1em; padding: 3px 10px; border-radius: 4px; }
+  .st-OK, .st-HEALTHY, .st-FULLY_USABLE { color: var(--green);  background: rgba(0,255,159,.1); }
+  .st-DEGRADED    { color: var(--yellow); background: rgba(255,204,0,.1); }
+  .st-NOT_USABLE, .st-FAILING  { color: var(--red);    background: rgba(255,60,95,.1); }
+  .st-UNKNOWN     { color: var(--muted);  background: rgba(100,120,160,.1); }
+
+  .card-body { padding: 16px 18px; }
+
+  .kv { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 9px; }
+  .kv .k { color: var(--muted); font-size: .82rem; }
+  .kv .v { font-family: 'Share Tech Mono', monospace; font-size: .85rem; color: var(--text); text-align: right; max-width: 60%; word-break: break-word; }
+
+  /* Bars */
+  .bar-wrap { margin: 4px 0 12px; }
+  .bar-label { display: flex; justify-content: space-between; font-size: .75rem; color: var(--muted); margin-bottom: 4px; }
+  .bar-track { height: 6px; background: rgba(255,255,255,.05); border-radius: 3px; overflow: hidden; }
+  .bar-fill  { height: 100%; border-radius: 3px; transition: width .6s ease; }
+  .bar-green  { background: var(--green); }
+  .bar-yellow { background: var(--yellow); }
+  .bar-red    { background: var(--red); }
+
+  /* Issues */
+  .issues { margin-top: 12px; }
+  .issue-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    font-size: .78rem; color: var(--yellow); padding: 5px 0;
+    border-top: 1px solid rgba(255,204,0,.1);
+  }
+  .issue-item.crit { color: var(--red); border-top-color: rgba(255,60,95,.1); }
+  .issue-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; margin-top: 4px; }
+
+  /* Disk / GPU sub-rows */
+  .sub-row {
+    background: rgba(0,0,0,.2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 10px 12px; margin-bottom: 8px;
+  }
+  .sub-title { font-size: .78rem; font-weight: 700; color: var(--accent); margin-bottom: 6px; letter-spacing: .06em; }
+
+  /* Net iface */
+  .iface-state { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .state-up   { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .state-down { background: var(--red); }
+
+  /* Raw JSON */
+  #raw-section { margin-top: 28px; }
+  #raw-toggle { cursor: pointer; font-size: .8rem; color: var(--muted); }
+  #raw-toggle:hover { color: var(--accent); }
+  #raw-pre {
+    display: none; margin-top: 10px;
+    background: #06090f; border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px; font-family: 'Share Tech Mono', monospace; font-size: .72rem;
+    color: #7ab; line-height: 1.6; overflow: auto; max-height: 500px;
+    white-space: pre;
+  }
+
+  /* Responsive */
+  @media (max-width: 600px) {
+    header { padding: 12px 16px; }
+    #dashboard { padding: 16px; }
+    .cards { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2" y="6" width="28" height="18" rx="2" stroke="#00e5ff" stroke-width="1.5"/>
+      <path d="M10 20 L16 12 L22 20" stroke="#00ff9f" stroke-width="1.5" stroke-linejoin="round"/>
+      <circle cx="16" cy="12" r="2" fill="#00ff9f"/>
+      <line x1="9" y1="28" x2="23" y2="28" stroke="#00e5ff" stroke-width="1.5"/>
+    </svg>
+    <div>
+      <h1>LAB WATCH</h1>
+      <span>HARDWARE MONITOR</span>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="ts" id="clock"></span>
+    <button class="btn btn-sm" onclick="document.getElementById('file-input').click()">LOAD REPORT</button>
+    <input type="file" id="file-input" accept=".json">
+  </div>
+</header>
+
+<div id="upload-zone">
+  <div class="icon">📂</div>
+  <h2>DROP REPORT JSON HERE</h2>
+  <p>Drag &amp; drop a <code>lab_watch_report_*.json</code> file<br>or click to browse</p>
+  <button class="btn" onclick="document.getElementById('file-input').click()">SELECT FILE</button>
+</div>
+
+<div id="dashboard">
+  <div class="machine-bar">
+    <div>
+      <div class="machine-name" id="d-hostname">—</div>
+      <div class="machine-meta" id="d-meta">—</div>
+    </div>
+    <div class="usability-badge" id="d-usability">—</div>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div id="raw-section">
+    <span id="raw-toggle" onclick="toggleRaw()">⬡ VIEW RAW JSON ▾</span>
+    <pre id="raw-pre"></pre>
+  </div>
+</div>
+
+</div>
+
+<script>
+// ── Clock ────────────────────────────────────────────────────
+(function tick(){
+  document.getElementById('clock').textContent = new Date().toUTCString().replace('GMT','UTC');
+  setTimeout(tick, 1000);
+})();
+
+// ── File I/O ─────────────────────────────────────────────────
+const zone = document.getElementById('upload-zone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('drag');
+  readFile(e.dataTransfer.files[0]);
+});
+zone.addEventListener('click', () => document.getElementById('file-input').click());
+document.getElementById('file-input').addEventListener('change', e => readFile(e.target.files[0]));
+
+function readFile(file) {
+  if (!file) return;
+  const r = new FileReader();
+  r.onload = ev => {
+    try { render(JSON.parse(ev.target.result)); }
+    catch(e) { alert('Invalid JSON: ' + e.message); }
+  };
+  r.readAsText(file);
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+const esc = s => String(s ?? '—')
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+function statusClass(s) {
+  const map = {OK:'OK',HEALTHY:'HEALTHY',FULLY_USABLE:'FULLY_USABLE',DEGRADED:'DEGRADED',NOT_USABLE:'NOT_USABLE',FAILING:'FAILING',UNKNOWN:'UNKNOWN'};
+  return 'st-' + (map[s] ?? 'UNKNOWN');
+}
+
+function kv(k, v) { return `<div class="kv"><span class="k">${k}</span><span class="v">${esc(v)}</span></div>`; }
+
+function bar(label, value, max=100) {
+  const pct = Math.min(100, Math.round(value / max * 100));
+  const cls = pct >= 90 ? 'bar-red' : pct >= 75 ? 'bar-yellow' : 'bar-green';
+  return `<div class="bar-wrap">
+    <div class="bar-label"><span>${label}</span><span>${pct}%</span></div>
+    <div class="bar-track"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>
+  </div>`;
+}
+
+function issues(arr, field='issues') {
+  if (!arr || !arr.length) return '';
+  return '<div class="issues">' + arr.map(i => {
+    const crit = /critical|FAIL|NOT_USABLE/i.test(i);
+    return `<div class="issue-item${crit?' crit':''}"><div class="issue-dot"></div>${esc(i)}</div>`;
+  }).join('') + '</div>';
+}
+
+function card(title, status, body) {
+  return `<div class="card">
+    <div class="card-header">
+      <span class="card-title">${title}</span>
+      <span class="card-status ${statusClass(status)}">${status}</span>
+    </div>
+    <div class="card-body">${body}</div>
+  </div>`;
+}
+
+// ── Render ────────────────────────────────────────────────────
+function render(d) {
+  document.getElementById('upload-zone').style.display = 'none';
+  document.getElementById('dashboard').style.display   = 'block';
+
+  // Machine bar
+  const sys = d.system || {};
+  document.getElementById('d-hostname').textContent = sys.hostname || 'Unknown';
+  document.getElementById('d-meta').textContent =
+    `${sys.os || '—'} | Kernel ${sys.kernel || '—'} | Up ${sys.uptime_hours || '—'}h | Board: ${sys.board || '—'} | ${d.generated_at || ''}`;
+  const ub = document.getElementById('d-usability');
+  ub.textContent = d.usability || '—';
+  ub.className = 'usability-badge badge-' + (d.usability || 'UNKNOWN');
+
+  const cards = [];
+
+  // ── System card ──
+  {
+    let b = '';
+    b += kv('OS', sys.os);
+    b += kv('Kernel', sys.kernel);
+    b += kv('Board', sys.board);
+    b += kv('BIOS', `${sys.bios_vendor} ${sys.bios_version}`);
+    b += kv('Uptime', sys.uptime_hours != null ? sys.uptime_hours + ' h' : '—');
+    b += kv('Boot time', sys.boot_time);
+    b += kv('Root access', sys.run_as_root ? '✓ Yes' : '✗ Limited');
+    cards.push(card('⬡ SYSTEM', d.usability || 'OK', b));
+  }
+
+  // ── CPU card ──
+  if (d.cpu) {
+    const c = d.cpu;
+    let b = '';
+    b += kv('Model', c.model);
+    b += kv('Arch / Cores / Threads', `${c.architecture} / ${c.physical_cores} / ${c.threads}`);
+    b += kv('Freq', c.freq_mhz ? c.freq_mhz + ' MHz' : '—');
+    if (c.cpu_utilization_pct != null) b += bar('CPU Utilization', c.cpu_utilization_pct);
+    if (c.temp_celsius != null && c.temp_celsius !== 'null') b += kv('Temperature', c.temp_celsius + ' °C');
+    b += kv('Load avg', `${c.load_avg?.['1m']} / ${c.load_avg?.['5m']} / ${c.load_avg?.['15m']}`);
+    b += issues(c.issues);
+    cards.push(card('⬡ CPU', c.status, b));
+  }
+
+  // ── RAM card ──
+  if (d.ram) {
+    const r = d.ram;
+    let b = '';
+    b += kv('Total', r.total_gb + ' GB');
+    b += kv('Available', r.available_gb + ' GB');
+    if (r.used_pct != null) b += bar('RAM Usage', r.used_pct);
+    b += kv('Swap Total', r.swap_total_gb + ' GB');
+    b += kv('Swap Free', r.swap_free_gb + ' GB');
+    if (r.dimm_slots_populated !== null && r.dimm_slots_populated !== 'null')
+      b += kv('DIMMs', r.dimm_slots_populated);
+    if (r.dimm_speed_mhz !== null && r.dimm_speed_mhz !== 'null')
+      b += kv('DIMM Speed', r.dimm_speed_mhz + ' MHz');
+    b += issues(r.issues);
+    cards.push(card('⬡ MEMORY', r.status, b));
+  }
+
+  // ── Storage card ──
+  if (d.storage) {
+    const s = d.storage;
+    let b = '';
+    (s.devices || []).forEach(dev => {
+      const type = dev.rotational == 1 ? 'HDD' : dev.rotational == 0 ? 'SSD' : '?';
+      let sb = `<div class="sub-title">/dev/${esc(dev.device)} — ${esc(dev.size_gb)} GB ${type}</div>`;
+      sb += kv('Health', dev.health);
+      if (dev.temp_celsius && dev.temp_celsius !== 'null') sb += kv('Temp', dev.temp_celsius + ' °C');
+      if (dev.smart_passed !== null && dev.smart_passed !== 'null')
+        sb += kv('SMART', dev.smart_passed ? '✓ Passed' : '✗ Failed');
+      (dev.filesystems || []).forEach(fs => {
+        sb += bar(`${fs.mount} (${fs.total_gb} GB)`, fs.used_pct);
+      });
+      if (dev.issues?.length) sb += issues(dev.issues);
+      b += `<div class="sub-row">${sb}</div>`;
+    });
+    b += issues(s.issues);
+    cards.push(card('⬡ STORAGE', s.status, b));
+  }
+
+  // ── GPU card ──
+  if (d.gpu) {
+    const g = d.gpu;
+    let b = '';
+    (g.devices || []).forEach(gd => {
+      let sb = `<div class="sub-title">${esc(gd.vendor)} — ${esc(gd.name)}</div>`;
+      if (gd.driver) sb += kv('Driver', gd.driver);
+      if (gd.temp_celsius != null) sb += kv('Temp', gd.temp_celsius + ' °C');
+      if (gd.utilization_pct != null) sb += bar('GPU Utilization', gd.utilization_pct);
+      if (gd.vram_total_mb != null) {
+        const usedPct = gd.vram_used_mb != null ? Math.round(gd.vram_used_mb / gd.vram_total_mb * 100) : null;
+        sb += kv('VRAM', `${gd.vram_used_mb} / ${gd.vram_total_mb} MB`);
+        if (usedPct != null) sb += bar('VRAM Usage', usedPct);
+      }
+      if (gd.issues?.length) sb += issues(gd.issues);
+      b += `<div class="sub-row">${sb}</div>`;
+    });
+    b += issues(g.issues);
+    cards.push(card('⬡ GPU', g.status, b));
+  }
+
+  // ── Network card ──
+  if (d.network) {
+    const n = d.network;
+    let b = '';
+    (n.interfaces || []).forEach(iface => {
+      const up = iface.state === 'up';
+      let sb = `<div class="sub-title">
+        <span class="iface-state ${up ? 'state-up' : 'state-down'}"></span>${esc(iface.interface)}
+        ${iface.speed_mbps && iface.speed_mbps !== 'null' ? ' — ' + iface.speed_mbps + ' Mbps' : ''}
+      </div>`;
+      sb += kv('State', iface.state);
+      sb += kv('MAC', iface.mac);
+      if (iface.ip_cidr && iface.ip_cidr !== 'null') sb += kv('IP', iface.ip_cidr);
+      sb += kv('RX / TX', `${fmtBytes(iface.rx_bytes)} / ${fmtBytes(iface.tx_bytes)}`);
+      if ((iface.rx_errors > 0) || (iface.tx_errors > 0))
+        sb += kv('Errors RX/TX', `${iface.rx_errors} / ${iface.tx_errors}`);
+      if (iface.issues?.length) sb += issues(iface.issues);
+      b += `<div class="sub-row">${sb}</div>`;
+    });
+    b += issues(n.issues);
+    cards.push(card('⬡ NETWORK', n.status, b));
+  }
+
+  document.getElementById('cards').innerHTML = cards.join('');
+
+  // Raw JSON
+  document.getElementById('raw-pre').textContent = JSON.stringify(d, null, 2);
+}
+
+function fmtBytes(b) {
+  if (b == null) return '—';
+  if (b >= 1e9) return (b/1e9).toFixed(2) + ' GB';
+  if (b >= 1e6) return (b/1e6).toFixed(1) + ' MB';
+  if (b >= 1e3) return (b/1e3).toFixed(0) + ' KB';
+  return b + ' B';
+}
+
+function toggleRaw() {
+  const pre = document.getElementById('raw-pre');
+  const tog = document.getElementById('raw-toggle');
+  if (pre.style.display === 'block') {
+    pre.style.display = 'none';
+    tog.textContent = '⬡ VIEW RAW JSON ▾';
+  } else {
+    pre.style.display = 'block';
+    tog.textContent = '⬡ HIDE RAW JSON ▲';
+  }
+}
+
+// Demo: auto-load from URL param ?report=<url> (optional)
+const params = new URLSearchParams(location.search);
+if (params.has('report')) {
+  fetch(params.get('report'))
+    .then(r => r.json()).then(render)
+    .catch(e => console.error('Could not load report:', e));
+}
+</script>
+</body>
+</html>
