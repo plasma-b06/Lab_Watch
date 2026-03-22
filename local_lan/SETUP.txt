@@ -1,0 +1,198 @@
+PC Lab Watch v3.0 — Setup Guide
+================================
+
+ARCHITECTURE
+────────────
+  Each PC (agent)                 Dashboard Server (one machine)
+  ─────────────────               ──────────────────────────────
+  lab_watch_agent.sh              lab_watch_server.py
+       │                                   │
+       │  ① Writes JSON → SQLite           │  Reads SQLite, serves web UI
+       └──── /mnt/labwatch/lab_watch.db ───┘
+                   (NFS or SMB share)
+
+  Fallback (if share unavailable):
+       agent ──HTTP POST──► server /api/report ──► SQLite
+
+FILES
+─────
+  lab_watch_agent.sh   — Runs on every monitored PC (silent, no output)
+  lab_watch_server.py  — Runs on one central machine (Flask dashboard)
+
+════════════════════════════════════════════════════════════════
+STEP 1 — SERVER MACHINE SETUP
+════════════════════════════════════════════════════════════════
+
+# 1. Install dependencies
+pip install flask
+
+# 2. Create the shared folder (this will be mounted by agents)
+sudo mkdir -p /srv/labwatch
+sudo chmod 777 /srv/labwatch          # agents need write access
+
+# 3. Export via NFS (Linux server)
+echo "/srv/labwatch  192.168.1.0/24(rw,sync,no_subtree_check,no_root_squash)" \
+  | sudo tee -a /etc/exports
+sudo exportfs -ra
+sudo systemctl enable --now nfs-server
+
+# --- OR export via Samba (cross-platform) ---
+# Add to /etc/samba/smb.conf:
+#   [labwatch]
+#   path = /srv/labwatch
+#   read only = no
+#   browseable = yes
+#   guest ok = yes
+# Then: sudo systemctl restart smbd
+
+# 4. Start the dashboard server
+DB_PATH=/srv/labwatch/lab_watch.db \
+PORT=5000 \
+BIND=0.0.0.0 \
+python3 lab_watch_server.py
+
+# Access dashboard at: http://<server-ip>:5000
+
+# 5. (Optional) Run as a systemd service
+sudo tee /etc/systemd/system/labwatch.service <<EOF
+[Unit]
+Description=Lab Watch Dashboard
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/labwatch/lab_watch_server.py
+Environment=DB_PATH=/srv/labwatch/lab_watch.db
+Environment=PORT=5000
+Environment=BIND=0.0.0.0
+Restart=always
+User=labwatch
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now labwatch
+
+════════════════════════════════════════════════════════════════
+STEP 2 — AGENT SETUP (each monitored PC)
+════════════════════════════════════════════════════════════════
+
+# 1. Install sqlite3 (usually pre-installed)
+sudo apt install sqlite3      # Debian/Ubuntu
+sudo yum install sqlite       # RHEL/CentOS
+
+# 2. Mount the shared folder
+sudo mkdir -p /mnt/labwatch
+
+# NFS mount:
+echo "<server-ip>:/srv/labwatch  /mnt/labwatch  nfs  defaults,_netdev  0 0" \
+  | sudo tee -a /etc/fstab
+sudo mount -a
+
+# Samba mount:
+# echo "//<server-ip>/labwatch  /mnt/labwatch  cifs  guest,uid=0  0 0" \
+#   | sudo tee -a /etc/fstab
+# sudo mount -a
+
+# 3. Copy and configure the agent
+sudo cp lab_watch_agent.sh /usr/local/bin/lab_watch_agent.sh
+sudo chmod +x /usr/local/bin/lab_watch_agent.sh
+
+# Edit the top of the script to set:
+#   SHARED_MOUNT="/mnt/labwatch"
+#   DB_PATH="/mnt/labwatch/lab_watch.db"
+#   CENTRAL_URL="http://<server-ip>:5000/api/report"  ← fallback
+
+# 4. Schedule via cron (run every 5 minutes as root)
+sudo crontab -e
+# Add:
+# */5 * * * * /usr/local/bin/lab_watch_agent.sh
+
+# --- OR as a systemd timer ---
+sudo tee /etc/systemd/system/labwatch-agent.service <<EOF
+[Unit]
+Description=Lab Watch Agent
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/lab_watch_agent.sh
+EOF
+
+sudo tee /etc/systemd/system/labwatch-agent.timer <<EOF
+[Unit]
+Description=Lab Watch Agent Timer
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now labwatch-agent.timer
+
+# 5. Test a manual run
+sudo /usr/local/bin/lab_watch_agent.sh
+cat /var/log/lab_watch_agent.log   # check for errors
+
+════════════════════════════════════════════════════════════════
+STEP 3 — VERIFY
+════════════════════════════════════════════════════════════════
+
+# Check DB has data
+sqlite3 /srv/labwatch/lab_watch.db \
+  "SELECT hostname, collected_at, usability FROM reports ORDER BY collected_at DESC LIMIT 10;"
+
+# Check REST API
+curl http://localhost:5000/api/machines | python3 -m json.tool
+curl http://localhost:5000/api/stats
+
+# Dashboard: open in browser
+http://<server-ip>:5000
+
+════════════════════════════════════════════════════════════════
+ENVIRONMENT VARIABLES
+════════════════════════════════════════════════════════════════
+
+Agent (lab_watch_agent.sh):
+  SHARED_MOUNT    Path where NFS/SMB is mounted   (default: /mnt/labwatch)
+  DB_PATH         Full path to lab_watch.db        (default: $SHARED_MOUNT/lab_watch.db)
+  CENTRAL_URL     HTTP fallback endpoint           (default: http://192.168.1.100:5000/api/report)
+
+Server (lab_watch_server.py):
+  DB_PATH         Path to SQLite DB                (default: ./lab_watch.db)
+  PORT            HTTP port to listen on           (default: 5000)
+  BIND            IP to bind to                    (default: 0.0.0.0)
+  KEEP_PER_HOST   Max report history per machine   (default: 200)
+
+════════════════════════════════════════════════════════════════
+DELIVERY LOGIC (agent)
+════════════════════════════════════════════════════════════════
+
+  1. If /mnt/labwatch is mounted AND sqlite3 is available
+       → Write directly into /mnt/labwatch/lab_watch.db
+  2. If mount unavailable (network glitch, PC just booted)
+       → HTTP POST JSON to CENTRAL_URL via curl or wget
+  3. All outcomes logged to /var/log/lab_watch_agent.log
+
+════════════════════════════════════════════════════════════════
+DASHBOARD FEATURES
+════════════════════════════════════════════════════════════════
+
+  • Fleet overview bar  — total / OK / degraded / fault counts
+  • Per-machine cards   — CPU%, RAM%, disk%, temp, issues, uptime
+  • Filter + search     — by usability status or hostname
+  • Detail modal        — click any card for full component breakdown
+  • Usability sparkline — visual history of last N reports
+  • Auto-refresh        — every 60 seconds, live clock
+  • REST API            — /api/machines  /api/machine/<host>  /api/stats
+
+════════════════════════════════════════════════════════════════
+MINIMUM REQUIREMENTS
+════════════════════════════════════════════════════════════════
+
+  Agent machine : bash 4+, sqlite3, coreutils (awk, grep, df)
+  Server machine: Python 3.8+, flask (pip install flask)
+  Network       : LAN with NFS or Samba, or plain TCP port 5000
